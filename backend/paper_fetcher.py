@@ -4,6 +4,7 @@ filters by keywords, and stores results in the database.
 """
 import asyncio
 import hashlib
+import re
 import httpx
 from datetime import datetime, timedelta
 from backend.database import save_paper, log_fetch, init_db
@@ -91,6 +92,20 @@ def generate_paper_id(title: str, doi: str = "") -> str:
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
+def _clean_abstract(text: str) -> str:
+    """Strip XML/HTML tags from CrossRef abstracts and normalize."""
+    if not text:
+        return ""
+    # Remove XML tags like <jats:p>, <jats:italic>, etc.
+    text = re.sub(r'<[^>]+>', '', text)
+    # Replace common XML entities
+    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+    text = text.replace('&quot;', '"').replace('&#x27;', "'").replace('&apos;', "'")
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 async def _fetch_crossref_page(client: httpx.AsyncClient, journal_name: str, rows: int = 20) -> list[dict]:
     """Fetch recent papers from a specific journal via CrossRef."""
     params = {
@@ -117,8 +132,7 @@ def parse_crossref_item(item: dict, journal_name: str, journal_info: dict) -> di
         return None
 
     title = title_raw[0]
-    # Skip items without abstracts or authors
-    abstract = item.get("abstract", "")
+    abstract = _clean_abstract(item.get("abstract", ""))
     author_list = item.get("author", [])
     if not author_list:
         return None
@@ -135,6 +149,17 @@ def parse_crossref_item(item: dict, journal_name: str, journal_info: dict) -> di
 
     doi = item.get("DOI", "")
     paper_id = generate_paper_id(title, doi)
+
+    # Check for open-access PDF link
+    pdf_url = None
+    link_list = item.get("link", [])
+    for link in link_list:
+        if link.get("content-type") == "application/pdf":
+            pdf_url = link.get("URL")
+            break
+    if not pdf_url and doi:
+        # Try Unpaywall for open-access PDF
+        pdf_url = f"https://api.unpaywall.org/v2/{doi}?email=dev@unpaywall.org"
 
     # Publish date
     pub_parts = item.get("published-print", {}) or item.get("published-online", {}) or {}

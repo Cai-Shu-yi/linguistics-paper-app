@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Header from '../components/Header';
 import PaperCard from '../components/PaperCard';
 import { fetchPapers, searchPapers } from '../services/paperService';
@@ -11,27 +11,69 @@ export default function HomePage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showKeywords, setShowKeywords] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const mountedRef = useRef(true);
 
-  const settings = getSettings();
+  // Read settings fresh every time (not cached at mount)
+  const getFreshSettings = () => getSettings();
 
   const loadPapers = useCallback(async () => {
+    const settings = getFreshSettings();
     setLoading(true);
-    const data = await fetchPapers(settings.keywords);
-    setPapers(data);
-    setLoading(false);
-  }, [settings.keywords]);
+    try {
+      const data = await fetchPapers(settings.keywords);
+      if (mountedRef.current) {
+        setPapers(data);
+        setLoading(false);
+      }
+    } catch {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     loadPapers();
+    return () => { mountedRef.current = false; };
   }, [loadPapers]);
 
-  const handleSearch = useCallback(async (query: string) => {
+  // Re-fetch when returning from settings page (keywords might have changed)
+  useEffect(() => {
+    const handleFocus = () => loadPapers();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [loadPapers]);
+
+  // Re-fetch when visibility changes (tab switch)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') loadPapers();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [loadPapers]);
+
+  const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
+
+    // Clear previous debounce
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!query.trim()) {
+      loadPapers();
+      return;
+    }
+
     setLoading(true);
-    const data = await searchPapers(query);
-    setPapers(data);
-    setLoading(false);
-  }, []);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const data = await searchPapers(query);
+        if (mountedRef.current) { setPapers(data); setLoading(false); }
+      } catch {
+        if (mountedRef.current) setLoading(false);
+      }
+    }, 300);
+  }, [loadPapers]);
 
   const handleClearSearch = () => {
     setSearchQuery('');
@@ -45,17 +87,16 @@ export default function HomePage() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      handleClearSearch();
-    }
+    if (e.key === 'Escape') handleClearSearch();
   };
+
+  const settings = getFreshSettings();
 
   return (
     <div className="min-h-screen bg-[var(--color-warm-bg)]">
       <Header />
 
       <main className="max-w-3xl mx-auto px-4 pb-16">
-        {/* Search Section */}
         <div className="pt-6 pb-4">
           <div className="relative">
             <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-warm-text-muted)]">
@@ -83,7 +124,6 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Active keywords */}
           <div className="mt-3">
             <button
               onClick={() => setShowKeywords(!showKeywords)}
@@ -108,7 +148,6 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Results */}
         <div className="space-y-3">
           {!loading && (
             <p className="text-[13px] text-[var(--color-warm-text-muted)] px-1">
