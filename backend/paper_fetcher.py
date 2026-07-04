@@ -7,7 +7,7 @@ import hashlib
 import re
 import httpx
 from datetime import datetime, timedelta
-from backend.database import save_paper, log_fetch, init_db
+from backend.database import save_paper, log_fetch, init_db, update_paper_abstract
 
 CROSSREF_URL = "https://api.crossref.org/works"
 SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -282,6 +282,10 @@ async def fetch_all_papers(
 
                 if await save_paper(paper):
                     new_total += 1
+                else:
+                    # Paper exists, try to update its abstract if we have one
+                    if paper.get("abstract") and paper.get("doi"):
+                        await update_paper_abstract(paper["doi"], paper["abstract"])
             return count
 
     async with httpx.AsyncClient(

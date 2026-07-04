@@ -143,6 +143,18 @@ export default function PaperCard({ paper, expanded, onToggle, onAnalysisReady }
                 <AnalysisSection title="创新点" content={displayAnalysis.innovation} />
                 <AnalysisSection title="文献综述要点" content={displayAnalysis.literatureReview} />
                 <AnalysisSection title="后续研究方向" content={displayAnalysis.futureDirections} />
+                {hasApiKey && (
+                  <div className="text-center pt-2">
+                    {analyzing ? (
+                      <span className="text-[12px] text-[var(--color-warm-primary)]">重新分析中...</span>
+                    ) : (
+                      <button onClick={handleAnalyze} disabled={analyzing}
+                        className="text-[12px] text-[var(--color-warm-text-muted)] hover:text-[var(--color-warm-primary)] underline underline-offset-2 transition-colors">
+                        重新 AI 分析（使用更详细的 prompt）
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-4">

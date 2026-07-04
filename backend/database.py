@@ -62,6 +62,21 @@ async def paper_exists(doi: str) -> bool:
     return row is not None
 
 
+async def update_paper_abstract(doi: str, abstract: str) -> bool:
+    """Update an existing paper's abstract. Returns True if updated."""
+    if not doi or not abstract:
+        return False
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE papers SET abstract = ? WHERE doi = ? AND (abstract IS NULL OR abstract = '')",
+        (abstract, doi)
+    )
+    updated = cursor.rowcount > 0
+    await db.commit()
+    await db.close()
+    return updated
+
+
 async def save_paper(paper: dict) -> bool:
     """Save a paper to DB. Returns True if new, False if duplicate."""
     doi = paper.get("doi", "")
