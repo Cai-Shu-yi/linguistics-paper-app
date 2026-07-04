@@ -2,15 +2,45 @@ import asyncio
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from backend.database import init_db, get_papers, log_fetch
 from backend.paper_fetcher import fetch_all_papers
+
+# Keywords for daily paper fetching
+DAILY_KEYWORDS = [
+    "language", "teaching", "syntax", "corpus", "acquisition",
+    "translation", "multilingual", "pragmatics", "phonetics",
+    "semantics", "discourse", "bilingual", "literacy",
+    "\u4e8c\u8bed\u4e60\u5f97", "\u8bed\u6599\u5e93", "\u7ffb\u8bd1",
+    "\u53e5\u6cd5", "\u8bed\u4e49", "\u8bed\u7528", "\u8ba4\u77e5",
+]
+
+scheduler = AsyncIOScheduler()
+
+
+async def scheduled_fetch():
+    """Auto-fetch papers daily."""
+    print(f"[Scheduler] Starting daily paper fetch...")
+    result = await fetch_all_papers(keywords=DAILY_KEYWORDS, max_per_journal=5)
+    print(f"[Scheduler] Fetched {result['found']} papers, {result['new']} new.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Schedule daily fetch at 08:00 UTC
+    scheduler.add_job(scheduled_fetch, "cron", hour=8, minute=0, id="daily_fetch")
+    scheduler.start()
+    # Also run once on startup (with slight delay to let server settle)
+    asyncio.create_task(delayed_startup_fetch())
     yield
+    scheduler.shutdown()
+
+
+async def delayed_startup_fetch():
+    await asyncio.sleep(5)
+    await scheduled_fetch()
 
 
 app = FastAPI(title="语言学论文速递 API", version="1.0.0", lifespan=lifespan)
